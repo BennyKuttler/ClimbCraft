@@ -40,6 +40,13 @@ struct Folder: Identifiable {
         "Butcher Blocks": 20,
         "Chickenheads": 24,
         "Chubby Jugs": 15,
+        "Cobbles": 33,
+        "Contours": 32,
+        "Cow Pies": 28,
+        "Dragon Balls": 32,
+        "DT Wafers": 110,
+        "Dual Texture Granites": 33,
+        //"Erosion Slopers": 7,
         //Teknik Handholds
         "Alto": 10,
         "Aphids": 10,
@@ -56,7 +63,7 @@ struct FolderList {
     static let brands = [
         Folder(imageName: "Kingdom Climbing Logo",
               title: "Kingdom Climbing",
-              holdGroups: ["Avalanches", "Butcher Blocks", "Chickenheads", "Chubby Jugs"]),
+               holdGroups: ["Avalanches", "Butcher Blocks", "Chickenheads", "Chubby Jugs", "Cobbles", "Contours", "Cow Pies", "Dragon Balls", "DT Wafers", "Dual Texture Granites"]),
         Folder(imageName: "Teknik Handholds Logo",
               title: "Teknik Handholds",
                holdGroups: ["Alto", "Aphids", "Arithmetics", "Arnold Muscle"]),
