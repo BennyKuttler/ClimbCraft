@@ -7,17 +7,21 @@ import SwiftUI
 import UIKit
 import simd
 
-
-
-
 struct WallView: View {
-    
     enum EditMode {
         case none
         /*case size
         case position
         case rotation*/
         case orientation
+    }
+    
+    // A struct that represents a hold and its transformations
+    struct TransformedHold {
+        var hold: Folder.Hold
+        var position: CGPoint
+        var scale: CGFloat
+        var rotation: Angle
     }
 
     
@@ -31,7 +35,7 @@ struct WallView: View {
     @State private var scale = 1.0
     @State private var lastScale = 1.0
     private let minScale = 1.0
-    private let maxScale = 5.0
+    private let maxScale = 8.0
     @State var isDragging = false
     @State private var selectedWallPosition: CGPoint = .zero
     @State private var editMode: EditMode = .orientation
@@ -39,28 +43,31 @@ struct WallView: View {
     @State private var showEditModeActionSheet = false
     @State private var showSelectWallAlert = false
     @State private var navViewKey = UUID()
+    @State private var selectedHolds: [TransformedHold] = []
 
     
     
-    var magnification: some Gesture {
-        MagnificationGesture()
-            .onChanged { state in
-                adjustScale(from: state)
-            }
-            .onEnded { state in
-                withAnimation {
-                    validateScaleLimits()
-                }
-                lastScale = 1.0
-            }
-    }
+
+    @State private var lastPosition = CGPoint.zero
+    @State private var centerPosition = CGPoint.zero
     
     @State var offset = CGSize.zero
     @State var newOffset = CGSize.zero
     
+    @State var initialPositions: [CGPoint] = []
+
+    @State var centerOfView = CGSize.zero
+
+    @State private var screenCenter = CGPoint(x: UIScreen.main.bounds.width / 2, y: UIScreen.main.bounds.height / 2)
+    
+
     var wallDrag: some Gesture {
         DragGesture()
             .onChanged { value in
+                if initialPositions.isEmpty {
+                    initialPositions = selectedHolds.map { $0.position }
+                }
+
                 let screenSize = UIScreen.main.bounds.size
                 let imageWidth = self.selectedWallImage!.size.width * CGFloat(scale)
                 let imageHeight = self.selectedWallImage!.size.height * CGFloat(scale)
@@ -80,24 +87,66 @@ struct WallView: View {
                 let yOffset = min(max(value.translation.height + self.offset.height, -heightOverflow), heightOverflow)
 
                 self.newOffset = CGSize(width: xOffset, height: yOffset)
+                
+                // Update the position of each hold to move with the wall
+                for index in selectedHolds.indices {
+                    let deltaX = value.location.x - value.startLocation.x
+                    let deltaY = value.location.y - value.startLocation.y
+
+                    let scaledDeltaX = deltaX / selectedHolds[index].scale
+                    let scaledDeltaY = deltaY / selectedHolds[index].scale
+
+                    let angle = -selectedHolds[index].rotation.radians
+                    let cosAngle = cos(angle)
+                    let sinAngle = sin(angle)
+
+                    let rotatedDeltaX = scaledDeltaX * cosAngle - scaledDeltaY * sinAngle
+                    let rotatedDeltaY = scaledDeltaX * sinAngle + scaledDeltaY * cosAngle
+
+                    selectedHolds[index].position = CGPoint(
+                        x: initialPositions[index].x + CGFloat(rotatedDeltaX),
+                        y: initialPositions[index].y + CGFloat(rotatedDeltaY)
+                    )
+                }
             }
             .onEnded { _ in
                 self.offset = self.newOffset
+                self.initialPositions = []
+            }
+    }
+
+    //@State private var screenCenter = CGPoint(x: UIScreen.main.bounds.width / 2, y: UIScreen.main.bounds.height / 2)
+
+    var magnification: some Gesture {
+        MagnificationGesture()
+            .onChanged { state in
+                let scalingFactor = state / lastScale
+                scale *= scalingFactor
+                lastScale = state
+                // Update the scaling of each hold to scale with the wall
+                for index in selectedHolds.indices {
+                    selectedHolds[index].scale *= CGFloat(scalingFactor)
+                }
+            }
+            .onEnded { state in
+                withAnimation {
+                    validateScaleLimits()
+                }
+                lastScale = 1.0
             }
     }
 
 
-
-
-
-
-    
     // MARK: - Initializer
-    init(selectedWallImage: UIImage? = nil, selectedHoldImage: UIImage?, selectedHold: Folder.Hold?) {
+    init(selectedWallImage: UIImage? = nil, selectedHoldImage: UIImage?, selectedHold: Folder.Hold?, selectedHolds: [TransformedHold] = []) {
         _selectedWallImage = State(initialValue: selectedWallImage)
         self.selectedHoldImage = selectedHoldImage
         _selectedHold = State(initialValue: selectedHold)
+        _selectedHolds = State(initialValue: selectedHolds)
     }
+
+    
+
     
     // MARK: - Body
     var body: some View {
@@ -112,9 +161,21 @@ struct WallView: View {
                         .gesture(self.wallDrag)
                         .gesture(magnification)
                 }
+                
+                // Loop over the selected holds and show them
 
-                if let selectedHold = selectedHold, editMode != .none {
-                    Image(selectedHold.name)
+                ForEach(selectedHolds.indices, id: \.self) { index in
+                    let transformedHold = selectedHolds[index]
+                    Image(transformedHold.hold.name)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .position(transformedHold.position)
+                        .scaleEffect(transformedHold.scale)
+                        .rotationEffect(transformedHold.rotation)
+                }
+
+                if let currentSelectedHold = selectedHold, editMode != .none {
+                    Image(currentSelectedHold.name)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .position(holdOverlayPosition)
@@ -131,28 +192,73 @@ struct WallView: View {
                        /* .gesture(editMode == .rotation ? rotationGesture() : nil)
                         .gesture(editMode == .size ? scaleGesture() : nil) */
                         // ...
+                    // Inside body
                         .alert(isPresented: $showConfirmationAlert) {
                             Alert(
                                 title: Text("Are you sure this is the correct orientation of your hold?"),
                                 primaryButton: .default(Text("Confirm")) {
-                                   /* if editMode == .size {
-                                        editMode = .position
-                                    } else if editMode == .position {
-                                        editMode = .rotation
-                                    }*/ if editMode == .orientation {
-                                        // Call the mergeImages function to merge the hold and the wall image
-                                        if let holdImage = UIImage(named: selectedHold.name), let wallImage = selectedWallImage {
-                                            let mergedImage = mergeImages(baseImage: wallImage, holdImage: holdImage, screenSize: UIScreen.main.bounds.size)
-
-                                            selectedWallImage = mergedImage
-                                        }
-                                        editMode = .none
+                                    if editMode == .orientation {
+                                        let newHold = TransformedHold(hold: selectedHold!, position: holdOverlayPosition, scale: holdOverlayScale, rotation: holdOverlayRotation)
+                                        selectedHolds.append(newHold)
+                                        selectedHold = nil // corrected line here
+                                        holdOverlayPosition = .zero
+                                        holdOverlayScale = 1.0
+                                        holdOverlayRotation = .degrees(0)
                                     }
                                 },
                                 secondaryButton: .cancel()
                             )
                         }
+
+
+
                 }
+                
+                /*VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        VStack {
+                            Button(action: {
+                                withAnimation {
+                                    // Increase the scale
+                                    let newScale = scale + 0.5
+                                    let scalingFactor = newScale / scale
+                                    scale = newScale
+                                    updatePositionsAndScaleAfterMagnification(scalingFactor: scalingFactor)
+                                }
+                            }) {
+                                Image("magnify_plus")  // Assumes that you have an image named 'magnify_plus'
+                                    .resizable()
+                                    .frame(width: 40, height: 40)
+                                    .padding()
+                                    .background(Color.gray.opacity(0.6))
+                                    .clipShape(Circle())
+                            }
+
+                            Button(action: {
+                                withAnimation {
+                                    // Decrease the scale
+                                    let newScale = max(scale - 0.5, 1.0)
+                                    let scalingFactor = newScale / scale
+                                    scale = newScale
+                                    updatePositionsAndScaleAfterMagnification(scalingFactor: scalingFactor)
+                                }
+                            }) {
+                                Image("magnify_minus")  // Assumes that you have an image named 'magnify_minus'
+                                    .resizable()
+                                    .frame(width: 40, height: 40)
+                                    .padding()
+                                    .background(Color.gray.opacity(0.6))
+                                    .clipShape(Circle())
+                            }
+                        }
+                    }
+                }
+
+
+                            .padding(.trailing)
+                            .foregroundColor(.white) */
             }
             .toolbar {
                 ToolbarItem(placement: .principal) {
@@ -185,7 +291,7 @@ struct WallView: View {
             .background(
                             NavigationLink(
                                 "",
-                                destination: FolderListView().navigationBarBackButtonHidden(true),
+                                destination: FolderListView(selectedHold: $selectedHold, selectedHolds: $selectedHolds).navigationBarBackButtonHidden(true),
                                 isActive: $showingFolderList
                             )
                             .opacity(0)
@@ -255,47 +361,6 @@ struct WallView: View {
                 }
             }
     }
-    
-    // Add a new function to merge the hold image with the wall image
-    func mergeImages(baseImage: UIImage, holdImage: UIImage, screenSize: CGSize) -> UIImage {
-        UIGraphicsBeginImageContextWithOptions(baseImage.size, false, 0.0)
-        baseImage.draw(in: CGRect(origin: .zero, size: baseImage.size))
-        
-        let scaleFactor = baseImage.size.width / screenSize.width
-
-        let holdNormalizedPosition = CGPoint(x: holdOverlayPosition.x, y: holdOverlayPosition.y)
-        let holdNormalizedSize = CGSize(width: holdImage.size.width * scaleFactor, height: holdImage.size.height * scaleFactor)
-        let holdRect = CGRect(origin: holdNormalizedPosition, size: holdNormalizedSize)
-        
-        // Preserve the position, rotation, and size of the hold
-        let context = UIGraphicsGetCurrentContext()!
-        context.saveGState()
-        
-        // Translate the context to the hold's position
-        context.translateBy(x: holdNormalizedPosition.x, y: holdNormalizedPosition.y)
-        
-        // Rotate the context by the hold's rotation
-        context.rotate(by: CGFloat(holdOverlayRotation.radians))
-        
-        // Translate the context back
-        //context.translateBy(x: -holdNormalizedPosition.x, y: -holdNormalizedPosition.y)
-        
-        // Draw the hold image with the modified context
-        holdImage.draw(in: holdRect, blendMode: .normal, alpha: 1.0)
-        
-        // Restore the context
-        context.restoreGState()
-        
-        selectedHold = nil
-        
-        let resultImage = UIGraphicsGetImageFromCurrentImageContext()!
-        UIGraphicsEndImageContext()
-        return resultImage
-    }
-
-
-
-
 
 }
 
