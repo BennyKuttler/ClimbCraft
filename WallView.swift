@@ -122,11 +122,18 @@ struct WallView: View {
             .onChanged { state in
                 let scalingFactor = state / lastScale
                 scale *= scalingFactor
-                lastScale = state
-                // Update the scaling of each hold to scale with the wall
+                // Get center of the screen
+                let center = CGPoint(x: UIScreen.main.bounds.width / 2, y: UIScreen.main.bounds.height / 2)
+                // Update the scaling and position of each hold to scale with the wall
                 for index in selectedHolds.indices {
                     selectedHolds[index].scale *= CGFloat(scalingFactor)
+                    // Update hold positions relative to the center of the screen
+                    let dx = selectedHolds[index].position.x - center.x
+                    let dy = selectedHolds[index].position.y - center.y
+                    selectedHolds[index].position.x = center.x + dx * CGFloat(scalingFactor)
+                    selectedHolds[index].position.y = center.y + dy * CGFloat(scalingFactor)
                 }
+                lastScale = state
             }
             .onEnded { state in
                 withAnimation {
@@ -135,6 +142,7 @@ struct WallView: View {
                 lastScale = 1.0
             }
     }
+
 
 
     // MARK: - Initializer
@@ -162,8 +170,6 @@ struct WallView: View {
                         .gesture(magnification)
                 }
                 
-                // Loop over the selected holds and show them
-
                 ForEach(selectedHolds.indices, id: \.self) { index in
                     let transformedHold = selectedHolds[index]
                     Image(transformedHold.hold.name)
@@ -172,6 +178,15 @@ struct WallView: View {
                         .position(transformedHold.position)
                         .scaleEffect(transformedHold.scale)
                         .rotationEffect(transformedHold.rotation)
+                        .onTapGesture {
+                            if selectedHold == nil {
+                                selectedHold = transformedHold.hold
+                                holdOverlayPosition = transformedHold.position
+                                holdOverlayScale = transformedHold.scale
+                                holdOverlayRotation = transformedHold.rotation
+                                showConfirmationAlert = true
+                            }
+                        }
                 }
 
                 if let currentSelectedHold = selectedHold, editMode != .none {
@@ -189,26 +204,23 @@ struct WallView: View {
                             }
                         })
                         .gesture(editMode == .orientation ? SimultaneousGesture(dragGesture(), SimultaneousGesture(rotationGesture(), scaleGesture())) : nil)
-                       /* .gesture(editMode == .rotation ? rotationGesture() : nil)
-                        .gesture(editMode == .size ? scaleGesture() : nil) */
-                        // ...
-                    // Inside body
-                        .alert(isPresented: $showConfirmationAlert) {
-                            Alert(
-                                title: Text("Are you sure this is the correct orientation of your hold?"),
-                                primaryButton: .default(Text("Confirm")) {
-                                    if editMode == .orientation {
-                                        let newHold = TransformedHold(hold: selectedHold!, position: holdOverlayPosition, scale: holdOverlayScale, rotation: holdOverlayRotation)
-                                        selectedHolds.append(newHold)
-                                        selectedHold = nil // corrected line here
-                                        holdOverlayPosition = .zero
-                                        holdOverlayScale = 1.0
-                                        holdOverlayRotation = .degrees(0)
-                                    }
-                                },
-                                secondaryButton: .cancel()
-                            )
-                        }
+                    //Needs to be fixed
+                    .alert(isPresented: $showConfirmationAlert) {
+                        Alert(
+                            title: Text("Would you like to edit the orientation of this hold?"),
+                            primaryButton: .default(Text("Confirm")) {
+                                if editMode == .orientation {
+                                    let newHold = TransformedHold(hold: selectedHold!, position: holdOverlayPosition, scale: holdOverlayScale, rotation: holdOverlayRotation)
+                                    selectedHolds.append(newHold)
+                                    selectedHold = nil
+                                    holdOverlayPosition = .zero
+                                    holdOverlayScale = 1.0
+                                    holdOverlayRotation = .degrees(0)
+                                }
+                            },
+                            secondaryButton: .cancel()
+                        )
+                    }
 
 
 
