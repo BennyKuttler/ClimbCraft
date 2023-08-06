@@ -45,8 +45,8 @@ struct WallView: View {
     @State private var selectedHold: Folder.Hold?
     @State private var scale = 1.0
     @State private var lastScale = 1.0
-    private let minScale = 0.2
-    private let maxScale = 1.0
+    private let minScale = 1.0
+    private let maxScale = 8.0
     @State var isDragging = false
     @State private var selectedWallPosition: CGPoint = .zero
     @State private var editMode: EditMode = .orientation
@@ -71,20 +71,18 @@ struct WallView: View {
 
     @State private var screenCenter = CGPoint(x: UIScreen.main.bounds.width / 2, y: UIScreen.main.bounds.height / 2)
     @State private var origin: CGPoint = .zero
-    @State private var initialLoad = true
-
-    
     var wallCenterPosition: CGPoint {
         guard let image = selectedWallImage else { return .zero }
         let x = selectedWallPosition.x + (image.size.width * CGFloat(scale)) / 2
         let y = selectedWallPosition.y + (image.size.height * CGFloat(scale)) / 2
         return CGPoint(x: x, y: y)
     }
+    @State private var showConfirmOrientationAlert = false // Add this new state property
     
     // Computed property for the center position of the wall image
 
 
-   /* var wallDrag: some Gesture {
+    var wallDrag: some Gesture {
         DragGesture()
             .onChanged { value in
                 if initialPositions.isEmpty {
@@ -110,6 +108,7 @@ struct WallView: View {
                 let yOffset = min(max(value.translation.height + self.offset.height, -heightOverflow), heightOverflow)
 
                 self.newOffset = CGSize(width: xOffset, height: yOffset)
+                self.selectedWallPosition = CGPoint(x: xOffset + selectedWallPosition.x, y: yOffset + selectedWallPosition.y) // Add this line
                 
                 // Update the position of each hold to move with the wall
                 for index in selectedHolds.indices {
@@ -135,22 +134,22 @@ struct WallView: View {
             }
             .onEnded { _ in
                 self.offset = self.newOffset
+                self.selectedWallPosition = CGPoint(x: self.newOffset.width + selectedWallPosition.x, y: self.newOffset.height + selectedWallPosition.y) // Add this line
                 self.initialPositions = []
                 // Update the origin of each hold to its final position after the drag
-                for index in selectedHolds.indices {
+                /*for index in selectedHolds.indices {
                     selectedHolds[index].origin = selectedHolds[index].position
-                }
+                } */
             }
 
     }
-    */
+    
 
     //@State private var screenCenter = CGPoint(x: UIScreen.main.bounds.width / 2, y: UIScreen.main.bounds.height / 2)
 
     var magnification: some Gesture {
         MagnificationGesture()
             .onChanged { state in
-            
                 
                 let scalingFactor = state / lastScale
                 scale *= scalingFactor
@@ -160,11 +159,12 @@ struct WallView: View {
                     var hold = selectedHolds[index]
                     hold.scale *= CGFloat(scalingFactor)
                     
-                    let scaledholdPositionVector = CGVector(dx: scalingFactor * (hold.origin.x - wallCenterPosition.x), dy: scalingFactor * (hold.origin.y - wallCenterPosition.y))
+                    let positionRelativeToCenter = CGPoint(x: hold.position.x - wallCenterPosition.x, y: hold.position.y - wallCenterPosition.y)
+                    let scaledHoldPosition = CGPoint(x: scalingFactor * positionRelativeToCenter.x, y: scalingFactor * positionRelativeToCenter.x)
                     
-                    let realHoldPositionVector = CGPoint(x: scaledholdPositionVector.dx + wallCenterPosition.x, y: scaledholdPositionVector.dy + wallCenterPosition.y)
+                    let newHoldPosition = CGPoint (x: scaledHoldPosition.x + wallCenterPosition.x, y: scaledHoldPosition.y + wallCenterPosition.y)
                     
-                    hold.position = CGPoint(x: realHoldPositionVector.x / scalingFactor, y: realHoldPositionVector.y / scalingFactor)
+                    //hold.position = CGPoint(x: realHoldPositionVector.x, y: realHoldPositionVector.y)
                     
                     // Update the hold in the array
                     selectedHolds[index] = hold
@@ -191,7 +191,7 @@ struct WallView: View {
     // MARK: - Body
     var body: some View {
         NavigationView {
-            ScrollView([.horizontal, .vertical]) {
+            //ScrollView([.horizontal, .vertical]) {
                 ZStack {
                     if let image = selectedWallImage {
                         Image(uiImage: image)
@@ -199,28 +199,56 @@ struct WallView: View {
                             .aspectRatio(contentMode: .fit)
                             .scaleEffect(CGFloat(scale))
                             .offset(x: self.newOffset.width, y: self.newOffset.height)
-                            //.gesture(self.wallDrag)
+                            .gesture(self.wallDrag)
                             .gesture(magnification)
                     }
                     
                     ForEach(selectedHolds.indices, id: \.self) { index in
                         let transformedHold = selectedHolds[index]
-                        Image(transformedHold.hold.name)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .position(transformedHold.position)
-                            .scaleEffect(transformedHold.scale)
-                            .rotationEffect(transformedHold.rotation)
-                            .onTapGesture {
-                                if selectedHold == nil {
-                                    selectedHold = transformedHold.hold
-                                    holdOverlayPosition = transformedHold.position
-                                    holdOverlayScale = transformedHold.scale
-                                    holdOverlayRotation = transformedHold.rotation
-                                    showConfirmationAlert = true
+                        if selectedHold == nil || transformedHold.hold.id != selectedHold!.id {
+                            Image(transformedHold.hold.name)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .position(transformedHold.position)
+                                .scaleEffect(transformedHold.scale)
+                                .rotationEffect(transformedHold.rotation)
+                                .onTapGesture {
+                                    //selectedHold = transformedHold.hold  // assign the tapped hold to selectedHold
+                                    showConfirmationAlert = true  // set alert to be shown
+                                    if selectedHold == nil {
+                                        selectedHold = transformedHold.hold
+                                        holdOverlayPosition = transformedHold.position
+                                        holdOverlayScale = transformedHold.scale
+                                        holdOverlayRotation = transformedHold.rotation
+                                        showConfirmationAlert = true
+                                    }
                                 }
-                            }
+                        }
                     }
+                    /*.alert(isPresented: $showConfirmationAlert) {
+                        Alert(
+                            title: Text("Would you like to edit the orientation of this hold?"),
+                            primaryButton: .default(Text("Confirm")) {
+                                // Execute the previous function when "Confirm" is tapped
+                                if let selected = selectedHold, let index = selectedHolds.firstIndex(where: { $0.hold.id == selected.id }) {
+                                    let transformedHold = selectedHolds[index]
+                                    if selectedHold == nil {
+                                        editMode = .orientation
+                                                                            selectedHold = transformedHold.hold
+                                                                            holdOverlayPosition = transformedHold.position
+                                                                            holdOverlayScale = transformedHold.scale
+                                                                            holdOverlayRotation = transformedHold.rotation
+                                                                            showConfirmationAlert = true  // set alert to be shown
+                                                                        }
+                                }
+
+                            },
+                            secondaryButton: .cancel()
+                        )
+                    } */
+
+
+
                     
                     if let currentSelectedHold = selectedHold, editMode != .none {
                         Image(currentSelectedHold.name)
@@ -231,35 +259,45 @@ struct WallView: View {
                             .rotationEffect(holdOverlayRotation)
                             .simultaneousGesture(TapGesture().onEnded {
                                 if editMode != .none {
-                                    showConfirmationAlert = true
+                                    showConfirmOrientationAlert = true
                                 } else {
                                     showEditModeActionSheet = true
                                 }
                             })
+
                             .gesture(editMode == .orientation ? SimultaneousGesture(dragGesture(), SimultaneousGesture(rotationGesture(), scaleGesture())) : nil)
-                        //Needs to be fixed
-                            .alert(isPresented: $showConfirmationAlert) {
+                            .gesture(editMode == .none ? SimultaneousGesture(dragGesture(), SimultaneousGesture(rotationGesture(), scaleGesture())) : nil)
+                            .alert(isPresented: $showConfirmOrientationAlert) {
                                 Alert(
-                                    title: Text("Would you like to edit the orientation of this hold?"),
+                                    title: Text("Would you like to confirm the orientation of this hold?"),
                                     primaryButton: .default(Text("Confirm")) {
-                                        if editMode == .orientation {
-                                            let newHold = TransformedHold(hold: selectedHold!, position: holdOverlayPosition, scale: holdOverlayScale, rotation: holdOverlayRotation, origin: origin)
-                                            
-                                            selectedHolds.append(newHold)
-                                            selectedHold = nil
-                                            holdOverlayPosition = .zero
-                                            holdOverlayScale = 1.0
-                                            holdOverlayRotation = .degrees(0)
+                                        // Confirming means ending the editing process
+                                        // Remove the selected hold from the array
+                                        if let index = selectedHolds.firstIndex(where: { $0.hold.id == selectedHold!.id }) {
+                                            selectedHolds.remove(at: index)
                                         }
+
+                                        let newHold = TransformedHold(hold: selectedHold!, position: holdOverlayPosition, scale: holdOverlayScale, rotation: holdOverlayRotation, origin: origin)
+                                        selectedHolds.append(newHold)
+
+                                        // Reset the editing states
+                                        selectedHold = nil
+                                        holdOverlayPosition = .zero
+                                        holdOverlayRotation = .degrees(0)
+                                        holdOverlayScale = 1.0
+                                        showEditModeActionSheet = true
+                                        showConfirmOrientationAlert = false
+                                        
                                     },
                                     secondaryButton: .cancel()
                                 )
                             }
+
                         
                         
                         
                     }
-                }
+                //}
                 
                 /*VStack {
                     Spacer()
